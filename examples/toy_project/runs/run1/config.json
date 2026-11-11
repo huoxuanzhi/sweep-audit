@@ -1,0 +1,4 @@
+{
+  "drop_path": 0.1,
+  "loss": "bce"
+}
