@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sweep-audit"
-version = "0.1.0"
-description = "Audit which declared CLI/config knobs were actually exercised before claiming the search space is exhausted."
+version = "0.2.0"
+description = "Audit which declared CLI/config knobs were actually exercised, and check whether the resulting gains are real, material, and shippable."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -21,6 +21,7 @@ dependencies = []
 
 [project.scripts]
 sweep-audit = "sweep_audit:main"
+sweep-verdict = "verdict:main"
 
 [tool.setuptools]
-py-modules = ["sweep_audit", "audit_flags"]
+py-modules = ["sweep_audit", "audit_flags", "verdict"]

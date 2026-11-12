@@ -307,6 +307,44 @@ def _is_under(path, directory):
     return os.path.abspath(path).startswith(prefix)
 
 
+def default_state(prm, is_bool):
+    """把默认值归一成与 uniq 相同的坐标系；布尔开关返回 on/off。"""
+    action = prm.get("action")
+    if is_bool:
+        if action == "store_true":
+            return "off"
+        if action == "store_false":
+            return "on"
+        default = prm.get("default")
+        if isinstance(default, bool):
+            return "on" if default else "off"
+        return None
+    default = prm.get("default")
+    if default is None:
+        return None
+    return norm(default, dict(prm, is_bool=is_bool))
+
+
+def one_sided(values, default, prm, is_bool):
+    """数值参数的所有取值都在默认值同侧时，标出扫描方向。"""
+    if is_bool or prm.get("choices"):
+        return None
+    if (prm.get("type_name") or "").lower() not in ("float", "int"):
+        return None
+    if default is None or len(values) < 2:
+        return None
+    try:
+        base = float(default)
+        numbers = [float(v) for v in values]
+    except (TypeError, ValueError):
+        return None
+    if all(number > base for number in numbers):
+        return "仅上调"
+    if all(number < base for number in numbers):
+        return "仅下调"
+    return None
+
+
 def audit(cfg=None):
     cfg = {**CONFIG, **(cfg or {})}
     prefix = cfg["prefix"]
@@ -355,7 +393,13 @@ def audit(cfg=None):
             else:
                 scan_config_text(payload, prm["dest"], raw, ext)
         uniq = sorted({norm(v, dict(prm, is_bool=is_bool)) for v in raw})
-        rows.append(dict(prm, raw=raw, uniq=uniq, is_bool=is_bool, used=bool(raw)))
+        default = default_state(dict(prm, is_bool=is_bool), is_bool)
+        rows.append(dict(
+            prm, raw=raw, uniq=uniq, is_bool=is_bool, used=bool(raw),
+            default_norm=default,
+            default_only=bool(uniq) and default is not None and uniq == [default],
+            one_sided=one_sided(uniq, prm.get("default"), prm, is_bool),
+        ))
 
     run_dirs = []
     if os.path.isdir(cfg["run_root"]):
@@ -418,7 +462,8 @@ def main():
             mark = ""
         else:
             mark = f"   <== 只碰过 {len(row['uniq'])}/{kinds} 种取值"
-        print(f"{row['opts'][0]:<24}{str(row['default']):<14}{len(row['raw']):>6}  {shown}{mark}")
+        extra = f"  [{row['one_sided']}]" if row.get("one_sided") else ""
+        print(f"{row['opts'][0]:<24}{str(row['default']):<14}{len(row['raw']):>6}  {shown}{mark}{extra}")
 
     print(f"\n参数总数 {len(rows)}；有记录 {n_used} 个；达到扫过标准 {n_swept} 个")
     print(f"原始覆盖率 {n_swept / max(len(rows), 1):.0%}  —— 通常偏低，但不是严格数学下限")
@@ -435,6 +480,13 @@ def main():
     print(f"无记录 {len(no_rec)} 个（上限，待核实）：" + (", ".join(no_rec) if no_rec else "无"))
     if confirmed:
         print(f"确认没用 {len(confirmed)} 个：" + ", ".join(confirmed))
+    default_only = [row["opts"][0] for row in rows if row.get("default_only")]
+    one_side = [f"{row['opts'][0]}({row['one_sided']})"
+                for row in rows if row.get("one_sided")]
+    if default_only:
+        print(f"只碰过默认值 {len(default_only)} 个：" + ", ".join(default_only))
+    if one_side:
+        print(f"单向扫描 {len(one_side)} 个：" + ", ".join(one_side))
     print(f"\n扫描：命令文件 {len(result['cmd_files'])} 个，配置文件 {len(result['cfg_files'])} 个，"
           f"运行目录 {len(result['run_dirs'])} 个，跳过超大文件 {len(result['skipped'])} 个")
     print(f"记录完整性：{'完整' if result['records_complete'] else '不完整'}"

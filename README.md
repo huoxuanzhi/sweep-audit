@@ -34,6 +34,10 @@ The tool also reports:
 - **recorded coverage** = swept parameters / total parameters
 - **adjusted coverage** after excluding parameters you mark as not applicable
 - run-directory completeness, including how many runs have config only
+- **default-only** parameters: recorded, but every value equals the default (for example `mixup_prob` seen twice, both `0.5`)
+- **one-sided** sweeps: every numeric value sits on one side of the default (for example `img_size` tried at 384 and 518, never smaller)
+
+The last two do not change coverage. They answer a question coverage cannot: *which direction was this knob actually pushed?*
 
 The two headline numbers have directions:
 
@@ -84,6 +88,7 @@ python sweep_audit.py \
 参数总数 6；有记录 5 个；达到扫过标准 3 个
 原始覆盖率 50%  —— 通常偏低，但不是严格数学下限
 确认没用 1 个：--head
+只碰过默认值 1 个：--seed
 ```
 
 Sweep standard:
@@ -110,6 +115,22 @@ Sweep standard:
 
 `--not-applicable` and `--known-used` take names without the leading `--`, so `seed` rather than `--seed`. This avoids argparse treating the value as another option.
 
+## Verdict arithmetic
+
+Coverage tells you what was tried. It does not tell you whether a result is real, large enough to matter, or shippable. `verdict.py` makes those three checks executable:
+
+```bash
+python verdict.py folds 0.0111 0.0046 0.0104 --min-gain 0.005
+python verdict.py replace --member-gain 0.0054 --weight 0.1667 --target-gap 0.0029
+python verdict.py cost --ms 105 --mb 453 --limit-mb 500
+```
+
+- `folds` rejects a single fold outright (`n < 3`) and requires both a mean above the threshold and the same sign on every fold.
+- `replace` reports the first-order estimate `Δensemble ≈ weight × Δmember`, and rescales a proxy delta by `real_weight / proxy_weight`.
+- `cost` fails on latency or size, so "accuracy went up but inference got too slow" is a hard fail instead of a footnote.
+
+Exit code is `0` on pass and `2` on fail, so it works as a CI gate.
+
 ## JSON output
 
 ```json
@@ -129,12 +150,19 @@ Sweep standard:
       "run_dirs": 111,
       "uncovered_run_dirs": 111,
       "config_only_run_dirs": 98
+    },
+    "direction": {
+      "one_sided": 2,
+      "default_only": 1
     }
   },
   "params": [
     {
       "name": "--lr",
       "values": ["0.1", "0.01"],
+      "default_norm": "0.0001",
+      "default_only": false,
+      "one_sided": null,
       "expected_kinds": 3,
       "swept": false,
       "state": "used"
@@ -166,9 +194,10 @@ Sweep standard:
 ```bash
 python test_audit.py
 python test_cli.py
+python test_verdict.py
 ```
 
-The regression suite covers booleans, `store_false`, numeric normalization, untyped numeric inference, string case and leading zeros, `choices`, quoted values, YAML/TOML, aliases, `dest`, line continuations, inline comments, cross-line values, glob deduplication, oversized files, config-only runs, empty scripts, and the three-state decision.
+The regression suite covers booleans, `store_false`, numeric normalization, untyped numeric inference, string case and leading zeros, `choices`, quoted values, YAML/TOML, aliases, `dest`, line continuations, inline comments, cross-line values, glob deduplication, oversized files, config-only runs, empty scripts, the three-state decision, default-only and one-sided detection, fold sign consistency, weight rescaling, and cost gates.
 
 ## License
 

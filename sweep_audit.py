@@ -6,7 +6,7 @@ import sys
 
 import audit_flags as engine
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def build_parser():
@@ -94,7 +94,8 @@ def _print_table(rows):
             mark = ""
         else:
             mark = f"   <== 只碰过 {len(row['uniq'])}/{row['kinds']} 种取值"
-        print(f"{row['name']:<24}{str(row['default']):<14}{len(row['raw']):>6}  {shown}{mark}")
+        extra = f"  [{row['one_sided']}]" if row.get("one_sided") else ""
+        print(f"{row['name']:<24}{str(row['default']):<14}{len(row['raw']):>6}  {shown}{mark}{extra}")
 
 
 def _summary(result, rows, not_applicable):
@@ -127,6 +128,10 @@ def _summary(result, rows, not_applicable):
             "config_files": len(result["cfg_files"]),
             "evidence_files": len(result["evidence_files"]),
         },
+        "direction": {
+            "one_sided": sum(1 for row in rows if row.get("one_sided")),
+            "default_only": sum(1 for row in rows if row.get("default_only")),
+        },
         "used": used,
     }
 
@@ -143,6 +148,9 @@ def _json_params(rows):
             "choices": row.get("choices"),
             "count": len(row["raw"]),
             "values": row["uniq"],
+            "default_norm": row.get("default_norm"),
+            "default_only": bool(row.get("default_only")),
+            "one_sided": row.get("one_sided"),
             "expected_kinds": row["kinds"],
             "swept": row["swept"],
             "used": row["used"],
@@ -204,6 +212,14 @@ def run(argv=None):
         if known:
             print("手工标记已用：" + ", ".join(
                 f"{row['name']}（{row.get('reason') or '无理由'}）" for row in known))
+        default_only = [row["name"] for row in rows if row.get("default_only")]
+        one_side = [f"{row['name']}({row['one_sided']})"
+                    for row in rows if row.get("one_sided")]
+        if default_only:
+            print(f"只碰过默认值 {len(default_only)} 个：" + ", ".join(default_only))
+        if one_side:
+            print(f"单向扫描 {len(one_side)} 个：" + ", ".join(one_side)
+                  + "  —— 默认值两侧至少一侧从未试过")
         records = summary["records"]
         print(f"\n扫描：命令文件 {summary['scan']['command_files']} 个，"
               f"配置文件 {summary['scan']['config_files']} 个，"

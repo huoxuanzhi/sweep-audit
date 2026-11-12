@@ -40,6 +40,9 @@ def train_source(path, extra=""):
         ap.add_argument("--unused-a", type=float, default=0.0)
         ap.add_argument("--unused-b", type=int, default=0)
         ap.add_argument("--unused-c", type=int, default=0)
+        ap.add_argument("--width", type=float, default=0.5)
+        ap.add_argument("--depth", type=int, default=4)
+        ap.add_argument("--fixed", type=float, default=0.5)
         """
     ) + extra)
 
@@ -56,10 +59,11 @@ def build_fixture(root):
         """
     ))
     write(os.path.join(runs, "b.sh"),
-          "--seed 42 --lr 1e-1 --lr_infer 0.1 --int_infer 001 --loss bce --dp 0.3 --model ResNet50 --tag 001\n")
+          "--seed 42 --lr 1e-1 --lr_infer 0.1 --int_infer 001 --loss bce --dp 0.3 "
+          "--model ResNet50 --tag 001 --width 1.5 --width 2.0 --depth 2 --depth 3\n")
     write(os.path.join(runs, "c.json"), json.dumps(
         {"seed": 7, "lr_infer": 0.10, "int_infer": 1, "model": "resnet50",
-         "drop_path": 0.2, "foo": "x", "tag": 1}
+         "drop_path": 0.2, "foo": "x", "tag": 1, "fixed": 0.5}
     ))
     write(os.path.join(runs, "d.yaml"), 'seed: 99\nnote: "my note"\n')
     # 这一行看起来像配置，但它是日志；不能被 YAML 扫描污染 --lr。
@@ -233,6 +237,21 @@ def main():
     # 13 调整后覆盖率需要的「不适用」清单会透传
     check("不适用清单透传",
           af.audit(dict(cfg, not_applicable=["unused-a"]))["not_applicable"], ["unused-a"])
+
+    # 14 方向标记：只碰过默认值 / 单向扫描
+    check("只碰过默认值", row(result, "--fixed")["default_only"], True)
+    check("默认值两侧都试过", row(result, "--seed")["default_only"], False)
+    check("仅上调", row(result, "--width")["one_sided"], "仅上调")
+    check("仅下调", row(result, "--depth")["one_sided"], "仅下调")
+    check("两侧都试过不标方向", row(result, "--seed")["one_sided"], None)
+    check("布尔不标方向", row(result, "--amp")["one_sided"], None)
+    check("choices 不标方向", row(result, "--loss")["one_sided"], None)
+    check("默认值归一（bool）", af.default_state(
+        dict(action="store_true", default=None), True), "off")
+    check("默认值归一（store_false）", af.default_state(
+        dict(action="store_false", default=True), True), "on")
+    check("默认值归一（数值）", af.default_state(
+        dict(default=1e-4, type_name="float"), False), "0.0001")
 
     ok = sum(1 for *_, passed in cases if passed)
     for label, got, want, passed in cases:
